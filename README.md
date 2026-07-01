@@ -4,7 +4,17 @@
 
 ## 概要
 
-Pythonで定型スライドを自動生成し、VBAマクロ版でもExcelから直接実行できる。Markdownファイル1枚から、Marpに近い感覚でPPTXを生成できる。
+Pythonで定型スライドを自動生成する。PowerPoint上でVBAマクロを実行して直接生成することもできる（Excelではなく**PowerPoint**のVBAエディタから実行する）。Markdownファイル1枚から、Marpに近い感覚でPPTXを生成できる。
+
+### Claude APIの利用について
+
+`make_pptx.py`（Markdown版・config.json版）とVBA版は外部APIを使わず、`python-pptx` のみでスライドを組み立てる。
+
+**`make_pptx_from_md.py`（使い方③のAI解析版）のみ**、Anthropic社の **Claude API**（`anthropic` Pythonライブラリ経由でのAPI呼び出し。Claude Codeそのものではない）を使用する。渡したレイアウトのお手本画像（PNG/JPG）をClaudeのVision機能で解析し、背景色・ヘッダー色・フォントサイズなどのデザイン設定をJSON形式で抽出する処理にのみ使われる（本文の生成にはAIを使わず、MarkdownをそのままPPTXに変換する）。
+
+- 利用モデル: `claude-sonnet-4-6`
+- 必要なもの: 環境変数 `ANTHROPIC_API_KEY`（[Anthropic Console](https://console.anthropic.com/)で発行するAPIキー。Claude Codeのサブスクリプションとは別に、API利用量に応じた従量課金が発生する）
+- 解析結果は `<画像名>_layout_cache.json` にキャッシュされるため、同じ画像であれば2回目以降はAPI呼び出しは発生しない
 
 ## 構成
 
