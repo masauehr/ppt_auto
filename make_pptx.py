@@ -1,9 +1,10 @@
 """
 PowerPoint定型スライド自動生成スクリプト
-使い方: python3 make_pptx.py config.json
+使い方: python3 make_pptx.py config.json  （またはMarkdownファイルを直接指定: python3 make_pptx.py slides.md）
 """
 
 import json
+import re
 import sys
 from pathlib import Path
 from pptx import Presentation
@@ -227,9 +228,108 @@ def make_summary_slide(prs, title, body):
     )
 
 
+def _strip_inline_md(text: str) -> str:
+    """行内の**太字**・*イタリック*・`コード`記法の記号だけを取り除く"""
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"\*(.+?)\*", r"\1", text)
+    text = re.sub(r"`(.+?)`", r"\1", text)
+    return text
+
+
+def parse_markdown(md_path: Path) -> dict:
+    """Markdownファイルをconfig.jsonと同じ構造のdictに変換する（config.json不要でMarkdownから直接生成するための入口）。
+
+    対応フォーマット（Marpに似せたシンプルな記法）:
+      ---
+      title: タイトル
+      subtitle: サブタイトル
+      author: 作成者
+      date: 日付
+      ---
+
+      ## スライドタイトル
+
+      本文テキスト
+      - 箇条書き（・付きに自動変換される）
+
+      > 引用・強調したい一言（quoteフィールドになる）
+
+      ![説明](image.png)（imagesフィールドになる。複数書けば横並び）
+
+      ## まとめ <!-- summary -->
+
+      まとめ本文
+    """
+    content = md_path.read_text(encoding="utf-8")
+    cfg = {"title": "", "subtitle": "", "author": "", "date": "", "slides": []}
+
+    # フロントマター（---...---）を解析
+    fm_match = re.match(r"^---\s*\n([\s\S]*?)\n---\s*\n?", content)
+    if fm_match:
+        for line in fm_match.group(1).split("\n"):
+            if ":" in line:
+                k, _, v = line.partition(":")
+                k, v = k.strip(), v.strip()
+                if k in cfg:
+                    cfg[k] = v
+        content = content[fm_match.end():]
+
+    # H2見出しでスライドに分割
+    parts = re.split(r"^## (.+)$", content, flags=re.MULTILINE)
+
+    i = 1
+    while i < len(parts) - 1:
+        raw_title = parts[i].strip()
+        raw_body = parts[i + 1].strip()
+
+        slide_type = "content"
+        if "<!-- summary -->" in raw_title:
+            slide_type = "summary"
+        raw_title = re.sub(r"<!--.*?-->", "", raw_title).strip()
+
+        body_lines = []
+        quote_lines = []
+        image_paths = []
+        for line in raw_body.split("\n"):
+            stripped = line.strip()
+
+            m_img = re.match(r"!\[.*?\]\((.+?)\)", stripped)
+            if m_img:
+                image_paths.append(m_img.group(1))
+                continue
+
+            if stripped.startswith(">"):
+                quote_lines.append(stripped.lstrip(">").strip())
+                continue
+
+            m_bullet = re.match(r"^[-*+]\s+(.*)", stripped)
+            prefix, text = ("・", m_bullet.group(1)) if m_bullet else ("", stripped)
+            body_lines.append(prefix + _strip_inline_md(text))
+
+        slide_cfg = {
+            "type": slide_type,
+            "title": raw_title,
+            "body": "\n".join(body_lines).strip("\n"),
+        }
+        if image_paths:
+            # 画像パスはMarkdownファイルからの相対パスとして解決する
+            slide_cfg["images"] = [
+                str((md_path.parent / p).resolve()) if not Path(p).is_absolute() else p
+                for p in image_paths
+            ]
+        if quote_lines:
+            slide_cfg["quote"] = _strip_inline_md(" ".join(quote_lines))
+
+        cfg["slides"].append(slide_cfg)
+        i += 2
+
+    return cfg
+
+
 def main():
     if len(sys.argv) < 2:
         print("使い方: python3 make_pptx.py config.json")
+        print("       python3 make_pptx.py slides.md")
         sys.exit(1)
 
     config_path = Path(sys.argv[1])
@@ -237,8 +337,11 @@ def main():
         print(f"エラー: {config_path} が見つかりません")
         sys.exit(1)
 
-    with open(config_path, encoding="utf-8") as f:
-        cfg = json.load(f)
+    if config_path.suffix.lower() == ".md":
+        cfg = parse_markdown(config_path)
+    else:
+        with open(config_path, encoding="utf-8") as f:
+            cfg = json.load(f)
 
     prs = Presentation()
     prs.slide_width  = SLIDE_WIDTH
