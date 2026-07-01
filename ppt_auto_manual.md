@@ -249,17 +249,45 @@ date: 2026年4月29日
 
 ## VBA版
 
+VBAモジュール（`vba/make_pptx.bas`）には2つのマクロが収録されている。
+
+| マクロ名 | 内容 |
+|---|---|
+| `MakePPTX` | コード内に直書きした雛形（`titles`/`bodies`/`types` 配列）からスライドを生成 |
+| `MakePPTXFromMarkdown` | Markdownファイルを読み込んでスライドを生成（`make_pptx.py` と同じ簡易記法に対応） |
+
 ### セットアップ
 
 1. PowerPointを開く
-2. Alt+F11でVBAエディタを起動
+2. VBAエディタを起動（Windows: `Alt+F11` / Mac: `Option+F11`。macOSでF11がMission Control等に割り当てられている場合は `Fn+Option+F11`）
 3. ファイル → ファイルのインポート で `vba/make_pptx.bas` を選択
-4. `MakePPTX` マクロを実行
+4. `MakePPTX` または `MakePPTXFromMarkdown` マクロを実行
+
+### `MakePPTXFromMarkdown`（Markdownから生成）の使い方
+
+1. マクロを実行すると、Markdownファイルのフルパスを入力するダイアログが表示される（Mac版VBAは `Application.FileDialog` が使えないため、ファイル選択ダイアログではなくパス直接入力方式）
+2. 例: `/Users/username/projects/ppt_auto/sample_slides.md`
+3. 対応する記法は `make_pptx.py` のMarkdown版とほぼ同じ（フロントマターの `title`/`subtitle`/`author`/`date`、`##` 見出し、`-`/`*` 箇条書き、`<!-- summary -->`）
+4. **`make_pptx.py` との違い**: `>` 引用（quote）と `![]()` 画像挿入には対応していない（VBA版は文字列処理のみで実装しているため、シンプルな記法に絞っている）。画像・引用を使いたい場合は `make_pptx.py`（Python版）を使う
+
+**Markdownファイル自体の文字コードはUTF-8で保存すること**（`sample_slides.md` 等、このプロジェクトの.mdファイルは通常UTF-8）。Mac版VBAの `Open...For Input`/`Line Input` はUTF-8のマルチバイト文字を正しく読み込めず文字化けするため、`ReadTextFile` 関数はテキストとしてではなくバイナリで読み込み、自前でUTF-8をデコードする実装になっている（`vba/make_pptx.bas` の `.bas` ファイル自体をShift-JISで保存しているのとは別問題で混同しないよう注意）。
+
+**開発メモ（VBAの罠）**: `Utf8BytesToString` 内のUTF-8デコード処理で、サロゲートペア判定に `&HFFFF`・`&HD800`・`&HDC00` のような16進数リテラルを使うと、VBAはこれらを**符号付き16bit Integer**として解釈してしまい負数になる（例: `&HFFFF` → `-1`）。その結果 `If codepoint > &HFFFF Then` が常に真になり、あらゆる文字（ASCII含む）が誤ってサロゲートペア扱いされ、文字数が2倍になり内容が破損するというバグが実際に発生した。回避策として該当箇所はすべて10進数リテラル（`65535`・`55296`・`56320`）を使っている。大きな16進数リテラルをVBAで扱う際は一般的に注意が必要（Long型として扱いたい場合は末尾に `&` を付けるか、10進数で書く）。
 
 ### 動作
 
 - PowerPointのVBAから直接スライドを生成する
-- テキストはコード内の設定部分に直書き（または別途テキストファイルから読み込み）
+- `MakePPTX`: テキストはコード内の設定部分に直書き
+- `MakePPTXFromMarkdown`: テキストは外部のMarkdownファイルから読み込む
+
+### 文字化け・コンパイルエラーが出る場合
+
+`vba/make_pptx.bas` は **Shift-JIS** エンコーディングで保存されている（VBAエディタの「ファイルのインポート」がUTF-8を正しく解釈できず、日本語部分が文字化けした上でコンパイルエラー（構文エラー）になるため）。
+
+- GitHub上でこのファイルを直接見ると文字化けして見えるが、これは想定どおり（Shift-JISのバイト列をUTF-8として表示しているため）。ダウンロードしてVBAエディタにインポートすれば正しく表示される
+- 手元で編集する場合は、保存時にエンコーディングをShift-JISのまま維持すること（UTF-8で保存し直すと再び文字化け・コンパイルエラーの原因になる）
+
+文字化けが解消した後に「コンパイルエラーです。: Sub または Function が定義されていません。」／「メソッドまたはデータ メンバーが見つかりません。」（いずれも `CentimetersToPoints` の箇所を指す）が出る場合は、**Mac版PowerPointのVBAには `Application.CentimetersToPoints` 自体が実装されていない**ことが原因（Windows版には存在するがMac版のVBAランタイムには存在しない）。現在のバージョンでは、この関数に依存せず自前の変換関数 `CmToPt(cm As Single)`（`cm * 28.346456692913385` で計算。1cm = 72/2.54 pt）に置き換え済みのため、最新の `vba/make_pptx.bas` を使えば発生しない。
 
 ---
 
@@ -277,3 +305,8 @@ date: 2026年4月29日
 | 2026-07-01 | README.mdの概要文から誤解を招く「（Excelではなく...）」の補足を削除（VBA版の説明は既に本文で正しく記載されているため重複・冗長だった）。利用モデルの表記を `claude-sonnet-4-6` のような特定バージョン番号付きから「Claude Sonnet」という総称表記に変更（モデルは更新されていくため、ドキュメントにバージョン番号を固定しない方針） |
 | 2026-07-01 | `make_pptx_from_md.py` のレイアウト解析で呼び出すモデルを `claude-sonnet-4-6` から最新の `claude-sonnet-5` に更新 |
 | 2026-07-01 | `marp_slides` プロジェクトへのリンクが `../marp_slides/` という相対パスになっており、`ppt_auto` が独立したGitHubリポジトリになったことでリンク切れになっていた問題を修正。`https://github.com/masauehr/marp_slides` への絶対URLに変更 |
+| 2026-07-01 | `vba/make_pptx.bas` がMacのVBAエディタでインポート時に文字化け・コンパイルエラーになる問題を修正（UTF-8で保存されていたためVBAエディタがShift-JISとして誤解釈していた。Shift-JIS＋CRLFに変換）。`.gitattributes` で `vba/*.bas` を改行コード変換対象外に設定。VBA版セットアップ手順にMac版起動コマンド（`Option+F11`）を追記 |
+| 2026-07-01 | `CentimetersToPoints` 関連のコンパイルエラーを修正。`Application.CentimetersToPoints(...)` への明示修飾でも「メソッドまたはデータ メンバーが見つかりません」というエラーが再発したため、Mac版PowerPointのVBAには本メソッド自体が実装されていないと判断。自前の変換関数 `CmToPt(cm As Single)`（`cm * 28.346456692913385`）を追加し、全37箇所を置き換え |
+| 2026-07-01 | VBA版に `MakePPTXFromMarkdown` マクロを追加。`make_pptx.py` のMarkdown版とほぼ同じ記法（フロントマター・`##`見出し・箇条書き・`<!-- summary -->`）に対応し、外部Markdownファイルからスライドを生成できるようにした（`>`引用・`![]()`画像は非対応）。ファイル選択はMac版VBAで`Application.FileDialog`が使えないためInputBoxでパス入力方式とした |
+| 2026-07-01 | `MakePPTXFromMarkdown` 実行時にMarkdownの内容が文字化けする問題を修正。Mac版VBAの `Open...For Input`/`Line Input` はUTF-8のマルチバイト文字を正しく読み込めないため、`ReadTextFile` をバイナリ読み込み＋自前UTF-8デコード（`Utf8BytesToString` 関数を新規追加。BOM除去・サロゲートペア対応込み）に変更 |
+| 2026-07-01 | `Utf8BytesToString` のバグを修正: サロゲートペア判定の16進数リテラル（`&HFFFF`・`&HD800`・`&HDC00`）がVBAで符号付きIntegerとして解釈され負数になっていたため、あらゆる文字が誤って2文字に分裂して文字化けしていた。10進数リテラルに置き換えて解消。`sample_slides.md` で正常に日本語表示されることを実機（Mac版PowerPoint）で確認済み |
