@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+~$*.pptx
+*_layout_cache.json
+.claude/settings.local.json

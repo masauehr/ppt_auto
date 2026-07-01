@@ -1,0 +1,62 @@
+{
+  "title": "Claude Code を活用した\n気象データ分析・予測モデルの開発",
+  "subtitle": "生成AI活用事例の報告",
+  "author": "WXBC月例会",
+  "date": "2026年7月",
+  "slides": [
+    {
+      "type": "content",
+      "title": "生成AI活用から Claude Code による開発へ",
+      "body": "・約2年前より生成AIを利用したコード作成を開始。チャットベースでWebアプリの試作を実施\n・その後AIエージェントの活用方法を知り、CLAUDE.md・plan.mdを用いたClaude Codeでの開発フローを導入\n・チャットでの要件整理 → GitHubへのpush → ドキュメント化、という一連の流れを反復\n・半年間で34件のリポジトリを作成",
+      "quote": "天気図・発電量予測・電力データ分析・ローカルLLM比較など、実用ニーズに応じてテーマを設定"
+    },
+    {
+      "type": "content",
+      "title": "学習教材と参考資料",
+      "body": "・WXBC「気象データ分析チャレンジ」にてPython・気象データの取り扱い・機械学習の基礎を習得\n・同講座を通じて農研機構メッシュ農業気象データ（AMD）の存在を確認\n・黒良氏のNote連載記事を参考にGRIB2データの読み込み処理を実装\n・公開されている教材コードをベースに、Claude Codeで機能追加・改修を実施",
+      "quote": "教材・サンプルコードを土台として、Claude Codeと共に機能を拡張していく開発スタイル"
+    },
+    {
+      "type": "content",
+      "title": "3気象モデルによる進路予測の比較",
+      "body": "GSM（気象庁）・ECMWF（欧州中期予報センター）・GFS（米国）による地上気圧予報を並列表示\n例: 2026年5月29日12UTC初期値、84時間予報",
+      "images": [
+        "../claude_writing/examples/images/2026052912_FT084h_GSM_SurfacePressure.png",
+        "../claude_writing/examples/images/2026052912_FT084h_ECM_SurfacePressure.png",
+        "../claude_writing/examples/images/2026052912_FT084h_GFS_SurfacePressure.png"
+      ],
+      "quote": "GSMを含む3モデル比較表示は独自開発。台風接近時の進路確認に活用している"
+    },
+    {
+      "type": "content",
+      "title": "気象レーダー・衛星画像表示アプリ",
+      "body": "・公開されている実装をClaude Codeに読み込ませ、機能単位に分割したアプリを開発\n・Webアプリ・iOSアプリ・Androidアプリを実装（現時点では非公開）\n・既存の実装を参考にAIで機能を移植・改修する開発手法を採用\n\n公開URL: https://masauehr.github.io/iphone-weather-app/radar"
+    },
+    {
+      "type": "content",
+      "title": "農業気象データによる太陽光発電量予測",
+      "body": "・農研機構メッシュ農業気象データ（AMD）: 全国をメッシュ単位で網羅する気象データ\n・WXBC「アメダス解析チャレンジ」の公開コードを参考にモデルを構築\n・説明変数: 全天日射量・日照時間等の気象予報値／目的変数: 実測発電量\n・手法: Random Forest。毎朝6:30に予測を自動更新し、GitHubで結果を公開・検証"
+    },
+    {
+      "type": "content",
+      "title": "予測値と実測値の日次検証",
+      "body": "",
+      "images": [
+        "../claude_writing/examples/images/forecast_vs_actual.png",
+        "../claude_writing/examples/images/monthly_avg_generation.png"
+      ],
+      "quote": "精度評価は継続中。日次での予測・検証サイクルを運用している"
+    },
+    {
+      "type": "content",
+      "title": "運用を通じた説明変数の見直し",
+      "body": "・初期モデルは説明変数の選定を含めて生成AIに一任し、一定の精度を確保\n・運用開始から約1ヶ月後、予測値に異常が見られたため要因を調査\n・5日前の日射量やその移動平均など、妥当性の低い説明変数が含まれていたことが判明\n・説明変数を見直し、モデルを再構築",
+      "quote": "発電量予測は蓄電池の夜間充電判断にも活用。晴天予測時は太陽光発電を優先し、悪天候予測時は夜間電力で充電"
+    },
+    {
+      "type": "summary",
+      "title": "まとめ・今後の展開",
+      "body": "・開発中の各ツールは、運用しながら継続的に改善を実施\n・ローカルLLM比較・電力データ分析についても並行して取り組み中\n・今後の課題: 撮影した地衣類画像の自動分類手法の検討"
+    }
+  ]
+}
