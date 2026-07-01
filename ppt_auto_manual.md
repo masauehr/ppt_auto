@@ -5,7 +5,7 @@
 定型PowerPointスライドをPythonまたはVBAマクロで自動生成するツール。
 テキスト設定ファイル（JSON）から表紙・目次・本文・まとめスライドを一括生成する。
 
-`python-pptx` で組み立てるため、出力される PPTX は**本物のテキストボックス**を持ち、PowerPoint 上でそのまま編集できる。Marp CLI（[marp_slides](../marp_slides/)）はデザイン自由度が高い一方で PPTX をスライド全体の画像として焼き込むため編集不可という制約があり、その代替として ppt_auto を使う場面がある。比較表は [marp-slides マニュアル「PPTX の編集可否について」](../pc_docs/manuals/automation/marp-slides.md) を参照。
+`python-pptx` で組み立てるため、出力される PPTX は**本物のテキストボックス**を持ち、PowerPoint 上でそのまま編集できる。Marp CLI（[marp_slides](https://github.com/masauehr/marp_slides)）はデザイン自由度が高い一方で PPTX をスライド全体の画像として焼き込むため編集不可という制約があり、その代替として ppt_auto を使う場面がある。比較表は [marp-slides マニュアル「PPTX の編集可否について」](https://github.com/masauehr/pc_docs/blob/main/manuals/automation/marp-slides.md) を参照。
 
 **入力形式は2種類**（同じ `make_pptx.py` で、ファイルの拡張子を見て自動で切り替わる）:
 
@@ -163,9 +163,9 @@ python3 make_pptx.py config.json
 
 ### 使用例: Marp スライドを編集可能な PPTX に作り直す
 
-Marp CLI（[marp_slides](../marp_slides/)）で作った資料は PPTX がテキスト編集不可（画像焼き込み）なため、PowerPoint 上で手直ししたい場合は本ツールで config.json を作って作り直す。
+Marp CLI（[marp_slides](https://github.com/masauehr/marp_slides)）で作った資料は PPTX がテキスト編集不可（画像焼き込み）なため、PowerPoint 上で手直ししたい場合は本ツールで config.json を作って作り直す。
 
-`ai_projects_intro_config.json` は [marp_slides/slides/2026-07-01-ai-projects-intro.md](../marp_slides/slides/2026-07-01-ai-projects-intro.md) の内容を移植した実例（`image`/`images`/`quote` フィールドの使用例も含む）。
+`ai_projects_intro_config.json` は [marp_slides/slides/2026-07-01-ai-projects-intro.md](https://github.com/masauehr/marp_slides/blob/main/slides/2026-07-01-ai-projects-intro.md) の内容を移植した実例（`image`/`images`/`quote` フィールドの使用例も含む）。
 
 ---
 
@@ -276,3 +276,4 @@ date: 2026年4月29日
 | 2026-07-01 | README/マニュアルの誤記修正: VBAマクロ版は「Excelから実行」ではなく「PowerPointのVBAエディタから実行」が正しいため訂正。あわせて「AI解析版（`make_pptx_from_md.py`）のみがClaude API（Anthropic APIのことでClaude Codeとは別物）を、レイアウト画像解析にのみ使用する」という利用範囲を詳述 |
 | 2026-07-01 | README.mdの概要文から誤解を招く「（Excelではなく...）」の補足を削除（VBA版の説明は既に本文で正しく記載されているため重複・冗長だった）。利用モデルの表記を `claude-sonnet-4-6` のような特定バージョン番号付きから「Claude Sonnet」という総称表記に変更（モデルは更新されていくため、ドキュメントにバージョン番号を固定しない方針） |
 | 2026-07-01 | `make_pptx_from_md.py` のレイアウト解析で呼び出すモデルを `claude-sonnet-4-6` から最新の `claude-sonnet-5` に更新 |
+| 2026-07-01 | `marp_slides` プロジェクトへのリンクが `../marp_slides/` という相対パスになっており、`ppt_auto` が独立したGitHubリポジトリになったことでリンク切れになっていた問題を修正。`https://github.com/masauehr/marp_slides` への絶対URLに変更 |
