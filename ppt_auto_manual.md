@@ -180,7 +180,7 @@ Marp CLI（[marp_slides](../marp_slides/)）で作った資料は PPTX がテキ
 **ここで言う「Claude API」は、Anthropic社が提供するAPI（`anthropic` Pythonライブラリ経由でのAPI呼び出し）のことで、Claude Code（このCLIツール自体）とは別物**。`ppt_auto` の他のスクリプト（`make_pptx.py` のMarkdown版・JSON版、VBA版）はAIを一切使わず `python-pptx` のみでスライドを組み立てるが、この `make_pptx_from_md.py` だけは以下の処理でClaude APIを呼び出す。
 
 - 呼び出しタイミング: 渡したレイアウトのお手本画像（PNG/JPG）を解析するときのみ（`analyze_layout()` 関数）。背景色・ヘッダー色・フォントサイズなど、デザイン設定をJSON形式で抽出させる
-- 利用モデル: `claude-sonnet-4-6`（Vision機能を使用）
+- 利用モデル: Claude Sonnet（Vision機能を使用）
 - Markdownの内容そのものの解釈・スライド生成にはAIを使わない（プレーンなテキスト処理）
 - 解析結果は `<画像名>_layout_cache.json` にキャッシュされるため、同じ画像であれば2回目以降はAPI呼び出しが発生しない
 - API利用には [Anthropic Console](https://console.anthropic.com/) で発行する `ANTHROPIC_API_KEY` が必要。Claude Codeのサブスクリプションとは別に、APIの利用量に応じた従量課金が発生する
@@ -274,3 +274,4 @@ date: 2026年4月29日
 | 2026-07-01 | バグ修正: `add_text_box` が `\n` を1つのrunにそのまま入れていたため箇条書きが改行されず繋がって表示される問題を修正（行ごとに別段落を生成するよう変更）。`add_images_row` をアスペクト比の異なる画像でも高さが揃うロジックに変更。表紙タイトルが長い場合に下のサブタイトルと重なる問題を修正（タイトルボックスを拡大・`\n`で明示的な改行に対応）。あわせて「作業の流れ（はじめての方向け）」セクションを追加 |
 | 2026-07-01 | `make_pptx.py` がMarkdownファイル（`.md`）を直接読み込めるように対応（`config.json` が不要に）。`##`見出し・`-`箇条書き・`>`引用・`![]()`画像のシンプルな記法に対応し、Marpに近い感覚で使える。サンプル `sample_slides.md` を追加。マニュアルを全面的に「Markdownから生成する」方法を軸にした構成に変更 |
 | 2026-07-01 | README/マニュアルの誤記修正: VBAマクロ版は「Excelから実行」ではなく「PowerPointのVBAエディタから実行」が正しいため訂正。あわせて「AI解析版（`make_pptx_from_md.py`）のみがClaude API（Anthropic APIのことでClaude Codeとは別物）を、レイアウト画像解析にのみ使用する」という利用範囲を詳述 |
+| 2026-07-01 | README.mdの概要文から誤解を招く「（Excelではなく...）」の補足を削除（VBA版の説明は既に本文で正しく記載されているため重複・冗長だった）。利用モデルの表記を `claude-sonnet-4-6` のような特定バージョン番号付きから「Claude Sonnet」という総称表記に変更（モデルは更新されていくため、ドキュメントにバージョン番号を固定しない方針） |
