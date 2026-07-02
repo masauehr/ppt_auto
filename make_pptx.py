@@ -10,7 +10,7 @@ from pathlib import Path
 from pptx import Presentation
 from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
-from pptx.enum.text import PP_ALIGN
+from pptx.enum.text import PP_ALIGN, MSO_AUTO_SIZE
 
 # コンテンツ領域（タイトルバー直下から下部バー直上まで）
 CONTENT_LEFT   = Inches(0.8)
@@ -50,13 +50,18 @@ def add_rect(slide, left, top, width, height, color):
 
 def add_text_box(slide, text, left, top, width, height,
                  font_size=24, bold=False, color=COLOR_DARK,
-                 align=PP_ALIGN.LEFT, wrap=True):
+                 align=PP_ALIGN.LEFT, wrap=True, autofit=False):
     """テキストボックスを追加する（\\n はPowerPointの段落として分割する。
     run.textに\\nをそのまま渡すとXML上は改行文字が入るだけでPowerPointは
-    改行として描画しないため、行ごとに別段落を作る必要がある）"""
+    改行として描画しないため、行ごとに別段落を作る必要がある）。
+    autofit=Trueの場合、ボックスに収まらない量のテキストが入ったときPowerPoint側で
+    自動的にフォントサイズを縮小する（python-pptxはフォントメトリクスを持たないため
+    事前計算はできず、PowerPointの「自動調整」機能に委ねる）"""
     txBox = slide.shapes.add_textbox(left, top, width, height)
     tf = txBox.text_frame
     tf.word_wrap = wrap
+    if autofit:
+        tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
     lines = text.split("\n")
     for i, line in enumerate(lines):
         p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
@@ -124,7 +129,7 @@ def make_toc_slide(prs, cfg):
     add_text_box(
         slide, body,
         Inches(1.0), Inches(1.5), Inches(11), Inches(5.5),
-        font_size=22, color=COLOR_DARK
+        font_size=22, color=COLOR_DARK, autofit=True
     )
 
     add_rect(slide, 0, Inches(7.2), SLIDE_WIDTH, Inches(0.3), COLOR_ACCENT)
@@ -138,7 +143,7 @@ def add_quote_box(slide, text, top):
     add_text_box(
         slide, text,
         CONTENT_LEFT + Inches(0.25), top + Inches(0.08), CONTENT_WIDTH - Inches(0.4), height - Inches(0.16),
-        font_size=16, color=COLOR_ACCENT
+        font_size=16, color=COLOR_ACCENT, autofit=True
     )
     return top + height + Inches(0.15)
 
@@ -193,7 +198,7 @@ def make_content_slide(prs, slide_cfg):
         add_text_box(
             slide, body,
             CONTENT_LEFT, cursor, CONTENT_WIDTH, body_height,
-            font_size=20 if images else 22, color=COLOR_DARK
+            font_size=20 if images else 22, color=COLOR_DARK, autofit=True
         )
         cursor += body_height
 
@@ -224,7 +229,7 @@ def make_summary_slide(prs, title, body):
     add_text_box(
         slide, body,
         Inches(0.8), Inches(1.4), Inches(11.7), Inches(5.5),
-        font_size=22, color=COLOR_WHITE
+        font_size=22, color=COLOR_WHITE, autofit=True
     )
 
 
@@ -274,8 +279,8 @@ def parse_markdown(md_path: Path) -> dict:
                     cfg[k] = v
         content = content[fm_match.end():]
 
-    # H2見出しでスライドに分割
-    parts = re.split(r"^## (.+)$", content, flags=re.MULTILINE)
+    # H1/H2見出しでスライドに分割（H3以下はスライド内の小見出しとして扱う）
+    parts = re.split(r"^#{1,2}\s+(.+)$", content, flags=re.MULTILINE)
 
     i = 1
     while i < len(parts) - 1:
@@ -290,8 +295,21 @@ def parse_markdown(md_path: Path) -> dict:
         body_lines = []
         quote_lines = []
         image_paths = []
+        in_code_block = False
+
         for line in raw_body.split("\n"):
             stripped = line.strip()
+
+            # コードブロック（```...```）は省略する（スライドには不向きなため）
+            if stripped.startswith("```"):
+                in_code_block = not in_code_block
+                continue
+            if in_code_block:
+                continue
+
+            # 水平線（---, ___, ***）は無視する
+            if re.fullmatch(r"[-_*]{3,}", stripped):
+                continue
 
             m_img = re.match(r"!\[.*?\]\((.+?)\)", stripped)
             if m_img:
@@ -300,6 +318,12 @@ def parse_markdown(md_path: Path) -> dict:
 
             if stripped.startswith(">"):
                 quote_lines.append(stripped.lstrip(">").strip())
+                continue
+
+            # H3〜H6はスライドを分けず、記号を外して小見出し行として扱う
+            m_subhead = re.match(r"^#{3,6}\s+(.*)", stripped)
+            if m_subhead:
+                body_lines.append(_strip_inline_md(m_subhead.group(1)))
                 continue
 
             m_bullet = re.match(r"^[-*+]\s+(.*)", stripped)
