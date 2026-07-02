@@ -5,6 +5,8 @@ Attribute VB_Name = "MakePPTX"
 ' 収録マクロ:
 '   MakePPTX             - コード内に直書きした雛形からスライドを生成
 '   MakePPTXFromMarkdown - Markdownファイルを読み込んでスライドを生成
+'                           （表・コードブロック・タイトル自動取得に対応。
+'                           `>`引用・`![]()`画像は非対応）
 '
 ' 使い方: PowerPointのVBAエディタ（Windows: Alt+F11 / Mac: Option+F11）
 '         からいずれかのマクロを実行
@@ -23,10 +25,11 @@ Private Const PRES_DATE     As String = "2026年4月29日"
 Private Const SLIDE_COUNT As Integer = 4
 
 ' ---- カラー定義 ----
-Private Const COLOR_ACCENT As Long = &H7D491F  ' BGRで格納（VBA仕様）→ 実際は #1F497D
-Private Const COLOR_WHITE  As Long = &HFFFFFF
-Private Const COLOR_DARK   As Long = &H262626
-Private Const COLOR_LIGHT  As Long = &HF2F2F2
+Private Const COLOR_ACCENT  As Long = &H7D491F  ' BGRで格納（VBA仕様）→ 実際は #1F497D
+Private Const COLOR_WHITE   As Long = &HFFFFFF
+Private Const COLOR_DARK    As Long = &H262626
+Private Const COLOR_LIGHT   As Long = &HF2F2F2
+Private Const COLOR_CODE_BG As Long = &HE8E8E8  ' コードブロック背景（本文背景より少し濃いグレー、RGB均等なのでBGR変換の影響なし）
 
 ' ----------------------------------------------------------------
 ' ユーティリティ: センチメートル→ポイント変換
@@ -89,7 +92,7 @@ Public Sub MakePPTX()
         If types(i) = "summary" Then
             Call MakeSummarySlide(prs, titles(i), bodies(i))
         Else
-            Call MakeContentSlide(prs, titles(i), bodies(i))
+            Call MakeContentSlide(prs, titles(i), bodies(i), New Collection, New Collection)
         End If
     Next i
 
@@ -123,8 +126,10 @@ Public Sub MakePPTXFromMarkdown()
     Dim slideTitles() As String
     Dim slideBodies() As String
     Dim slideTypes() As String
+    Dim slideTables() As Collection
+    Dim slideCodeBlocks() As Collection
     Dim slideCount As Integer
-    Call ParseSlides(bodyText, slideTitles, slideBodies, slideTypes, slideCount)
+    Call ParseSlides(bodyText, slideTitles, slideBodies, slideTypes, slideTables, slideCodeBlocks, slideCount)
 
     If slideCount = 0 Then
         MsgBox "スライドが見つかりませんでした（## 見出しのスライドが1枚もありません）", vbExclamation
@@ -150,7 +155,7 @@ Public Sub MakePPTXFromMarkdown()
         If slideTypes(i) = "summary" Then
             Call MakeSummarySlide(prs, slideTitles(i), slideBodies(i))
         Else
-            Call MakeContentSlide(prs, slideTitles(i), slideBodies(i))
+            Call MakeContentSlide(prs, slideTitles(i), slideBodies(i), slideTables(i), slideCodeBlocks(i))
         End If
     Next i
 
@@ -382,10 +387,13 @@ End Function
 
 '=============================================================
 ' ユーティリティ: "## " 見出しでスライドに分割する
+' （各スライドの本文はParseSlideBodyでさらに本文/表/コードブロックに
+' 分解し、outTables・outCodeBlocksにスライドごとのCollectionを格納する）
 '=============================================================
 Private Sub ParseSlides(ByVal src As String, _
                          ByRef outTitles() As String, ByRef outBodies() As String, _
-                         ByRef outTypes() As String, ByRef outCount As Integer)
+                         ByRef outTypes() As String, ByRef outTables() As Collection, _
+                         ByRef outCodeBlocks() As Collection, ByRef outCount As Integer)
 
     Dim lines() As String
     lines = Split(src, vbLf)
@@ -397,6 +405,8 @@ Private Sub ParseSlides(ByVal src As String, _
     ReDim outTitles(1 To maxSlides)
     ReDim outBodies(1 To maxSlides)
     ReDim outTypes(1 To maxSlides)
+    ReDim outTables(1 To maxSlides)
+    ReDim outCodeBlocks(1 To maxSlides)
     outCount = 0
 
     Dim curTitle As String
@@ -414,7 +424,10 @@ Private Sub ParseSlides(ByVal src As String, _
             If inSlide Then
                 outCount = outCount + 1
                 outTitles(outCount) = curTitle
-                outBodies(outCount) = FormatBody(curBodyLines)
+                Dim tbls As Collection, codes As Collection
+                outBodies(outCount) = ParseSlideBody(curBodyLines, tbls, codes)
+                Set outTables(outCount) = tbls
+                Set outCodeBlocks(outCount) = codes
                 outTypes(outCount) = curType
             End If
 
@@ -436,50 +449,344 @@ Private Sub ParseSlides(ByVal src As String, _
     If inSlide Then
         outCount = outCount + 1
         outTitles(outCount) = curTitle
-        outBodies(outCount) = FormatBody(curBodyLines)
+        Dim tbls2 As Collection, codes2 As Collection
+        outBodies(outCount) = ParseSlideBody(curBodyLines, tbls2, codes2)
+        Set outTables(outCount) = tbls2
+        Set outCodeBlocks(outCount) = codes2
         outTypes(outCount) = curType
     End If
 
 End Sub
 
 '=============================================================
-' ユーティリティ: スライド本文を整形する
-' （"- "箇条書きを"・"に変換し、Chr(13)区切りの1文字列にする）
+' ユーティリティ: スライド本文を本文テキスト・表・コードブロックに分解する
+' （"- "箇条書きは"・"に変換してChr(13)区切りの本文にする。
+' "|セル|セル|"の行は表としてoutTablesへ、"```"で囲まれた行は
+' コードブロックとしてoutCodeBlocksへ、それぞれ集める）
 '=============================================================
-Private Function FormatBody(ByVal raw As String) As String
+Private Function ParseSlideBody(ByVal raw As String, ByRef outTables As Collection, ByRef outCodeBlocks As Collection) As String
 
     Dim lines() As String
+    Dim bodyResult As String
+    Dim bodyFirst As Boolean
+    Dim inCodeBlock As Boolean
+    Dim codeLines As String
+    Dim codeFirst As Boolean
+    Dim tableHeader As Collection
+    Dim tableRows As Collection
+    Dim tablePendingHeader As Boolean
+    Dim i As Long
+    Dim ln As String
+    Dim trimmed As String
+    Dim cells As Collection
+    Dim joined As String
+    Dim cIdx As Long
+    Dim outLine As String
+
+    Set outTables = New Collection
+    Set outCodeBlocks = New Collection
+
     lines = Split(raw, vbLf)
 
-    Dim result As String
-    Dim first As Boolean
-    first = True
+    bodyFirst = True
+    inCodeBlock = False
 
-    Dim i As Integer
+    Set tableHeader = Nothing
+    Set tableRows = Nothing
+    tablePendingHeader = False
+
     For i = 0 To UBound(lines)
-        Dim ln As String
         ln = lines(i)
-
-        Dim trimmed As String
         trimmed = Trim(ln)
-        If Left(trimmed, 2) = "- " Or Left(trimmed, 2) = "* " Then
-            ln = "・" & Mid(trimmed, 3)
+
+        ' コードフェンス（```）の開始・終了
+        If Left(trimmed, 3) = "```" Then
+            If inCodeBlock Then
+                outCodeBlocks.Add codeLines
+                inCodeBlock = False
+            Else
+                inCodeBlock = True
+                codeLines = ""
+                codeFirst = True
+            End If
+            GoTo ContinueLoop
+        End If
+        If inCodeBlock Then
+            If codeFirst Then
+                codeLines = ln
+                codeFirst = False
+            Else
+                codeLines = codeLines & vbLf & ln
+            End If
+            GoTo ContinueLoop
         End If
 
-        If Not first Then
-            result = result & Chr(13)
+        ' Markdownテーブル（|セル|セル|）の行かどうか判定する
+        If Left(trimmed, 1) = "|" And Right(trimmed, 1) = "|" And Len(trimmed) >= 2 Then
+            Set cells = SplitTableCells(trimmed)
+            If tablePendingHeader Then
+                If IsTableSeparatorRow(cells) Then
+                    tablePendingHeader = False
+                    Set tableRows = New Collection
+                Else
+                    ' 直前の行はヘッダーではなく単なるデータ行だった
+                    Call FlushTable(outTables, tableHeader, tableRows)
+                    Set tableHeader = cells
+                    Set tableRows = Nothing
+                    tablePendingHeader = True
+                End If
+                GoTo ContinueLoop
+            ElseIf Not tableRows Is Nothing Then
+                tableRows.Add cells
+                GoTo ContinueLoop
+            Else
+                Set tableHeader = cells
+                tablePendingHeader = True
+                GoTo ContinueLoop
+            End If
+        Else
+            If tablePendingHeader Then
+                ' ヘッダー候補だけで表として確定しなかった場合は普通の行として扱う
+                joined = ""
+                For cIdx = 1 To tableHeader.Count
+                    If cIdx > 1 Then
+                        joined = joined & " / "
+                    End If
+                    joined = joined & tableHeader(cIdx)
+                Next cIdx
+                bodyResult = AppendBodyLine(bodyResult, bodyFirst, "・" & joined)
+            Else
+                Call FlushTable(outTables, tableHeader, tableRows)
+            End If
+            Set tableHeader = Nothing
+            Set tableRows = Nothing
+            tablePendingHeader = False
         End If
-        result = result & ln
-        first = False
+
+        ' 箇条書き変換
+        If Left(trimmed, 2) = "- " Or Left(trimmed, 2) = "* " Then
+            outLine = "・" & Mid(trimmed, 3)
+        Else
+            outLine = ln
+        End If
+        bodyResult = AppendBodyLine(bodyResult, bodyFirst, outLine)
+
+ContinueLoop:
     Next i
 
+    Call FlushTable(outTables, tableHeader, tableRows)
+    If inCodeBlock And Len(codeLines) > 0 Then
+        outCodeBlocks.Add codeLines
+    End If
+
     ' 末尾の空行を除去する
-    Do While Right(result, 1) = Chr(13)
-        result = Left(result, Len(result) - 1)
+    Do While Right(bodyResult, 1) = Chr(13)
+        bodyResult = Left(bodyResult, Len(bodyResult) - 1)
     Loop
 
-    FormatBody = result
+    ParseSlideBody = bodyResult
 
+End Function
+
+'=============================================================
+' ユーティリティ: 本文文字列に1行追加する（1行目以外はChr(13)区切り）
+'=============================================================
+Private Function AppendBodyLine(ByVal current As String, ByRef isFirst As Boolean, ByVal newLine As String) As String
+    If Not isFirst Then
+        current = current & Chr(13)
+    End If
+    current = current & newLine
+    isFirst = False
+    AppendBodyLine = current
+End Function
+
+'=============================================================
+' ユーティリティ: 読み取り中だった表を確定してoutTablesに積む
+' （tbl(1)=ヘッダーセルCollection、tbl(2)以降=各行のセルCollection）
+'=============================================================
+Private Sub FlushTable(ByRef outTables As Collection, ByRef header As Collection, ByRef rows As Collection)
+    Dim tbl As Collection
+    Dim r As Variant
+
+    If header Is Nothing Then Exit Sub
+    If rows Is Nothing Then Exit Sub
+    If rows.Count = 0 Then Exit Sub
+
+    Set tbl = New Collection
+    tbl.Add header
+    For Each r In rows
+        tbl.Add r
+    Next r
+    outTables.Add tbl
+End Sub
+
+'=============================================================
+' ユーティリティ: Markdownテーブルの1行をセルのCollectionに分解する
+'=============================================================
+Private Function SplitTableCells(ByVal line As String) As Collection
+    Dim inner As String
+    Dim parts() As String
+    Dim result As Collection
+    Dim i As Long
+
+    inner = Trim(line)
+    If Left(inner, 1) = "|" Then
+        inner = Mid(inner, 2)
+    End If
+    If Right(inner, 1) = "|" Then
+        inner = Left(inner, Len(inner) - 1)
+    End If
+
+    parts = Split(inner, "|")
+
+    Set result = New Collection
+    For i = 0 To UBound(parts)
+        result.Add Trim(parts(i))
+    Next i
+    Set SplitTableCells = result
+End Function
+
+'=============================================================
+' ユーティリティ: Markdownテーブルの区切り行（|---|---|等）かどうか判定する
+'=============================================================
+Private Function IsTableSeparatorRow(ByVal cells As Collection) As Boolean
+    Dim c As Variant
+
+    If cells.Count = 0 Then
+        IsTableSeparatorRow = False
+        Exit Function
+    End If
+    For Each c In cells
+        If Not IsSeparatorCell(CStr(c)) Then
+            IsTableSeparatorRow = False
+            Exit Function
+        End If
+    Next c
+    IsTableSeparatorRow = True
+End Function
+
+Private Function IsSeparatorCell(ByVal s As String) As Boolean
+    Dim i As Long
+    Dim ch As String
+    Dim hasDash As Boolean
+
+    s = Trim(s)
+    If Len(s) = 0 Then
+        IsSeparatorCell = False
+        Exit Function
+    End If
+
+    hasDash = False
+    For i = 1 To Len(s)
+        ch = Mid(s, i, 1)
+        If ch = "-" Then
+            hasDash = True
+        ElseIf ch = ":" Then
+            ' コロンは許容（左寄せ・右寄せ・中央寄せの指定）
+        Else
+            IsSeparatorCell = False
+            Exit Function
+        End If
+    Next i
+    IsSeparatorCell = hasDash
+End Function
+
+'=============================================================
+' ユーティリティ: プロポーショナルフォントのテキストが折り返されて
+' 何行になるか概算する（半角はfontSize*0.55、全角はfontSize分として近似）
+'=============================================================
+Private Function EstimateWrappedLines(ByVal text As String, ByVal fontSizePt As Single, ByVal widthPt As Single) As Long
+    Dim totalWidth As Double
+    Dim i As Long
+    Dim code As Long
+    Dim n As Long
+
+    If Len(text) = 0 Or widthPt <= 0 Then
+        EstimateWrappedLines = 1
+        Exit Function
+    End If
+
+    For i = 1 To Len(text)
+        code = AscW(Mid(text, i, 1))
+        If code >= 0 And code < 128 Then
+            totalWidth = totalWidth + fontSizePt * 0.55
+        Else
+            totalWidth = totalWidth + fontSizePt
+        End If
+    Next i
+
+    n = -Int(-(totalWidth / widthPt))  ' 正の値のceiling（VBAにはCeiling関数が無いため）
+    If n < 1 Then
+        n = 1
+    End If
+    EstimateWrappedLines = n
+End Function
+
+'=============================================================
+' ユーティリティ: Chr(13)区切りの本文が必要とする概算の高さ(pt)を返す
+'=============================================================
+Private Function EstimateTextBlockHeight(ByVal text As String, ByVal fontSizePt As Single, ByVal widthPt As Single) As Single
+    Dim lines() As String
+    Dim totalLines As Long
+    Dim i As Long
+
+    lines = Split(text, Chr(13))
+
+    totalLines = 0
+    For i = 0 To UBound(lines)
+        totalLines = totalLines + EstimateWrappedLines(lines(i), fontSizePt, widthPt)
+    Next i
+
+    EstimateTextBlockHeight = totalLines * fontSizePt * 1.25 + 12
+End Function
+
+'=============================================================
+' ユーティリティ: 等幅フォント（コードブロック）のテキストが折り返されて
+' 何行になるか概算する（半角はfontSize*0.62、全角はfontSize分として近似）
+'=============================================================
+Private Function EstimateMonoWrappedLines(ByVal text As String, ByVal fontSizePt As Single, ByVal widthPt As Single) As Long
+    Dim totalWidth As Double
+    Dim i As Long
+    Dim code As Long
+    Dim n As Long
+
+    If Len(text) = 0 Or widthPt <= 0 Then
+        EstimateMonoWrappedLines = 1
+        Exit Function
+    End If
+
+    For i = 1 To Len(text)
+        code = AscW(Mid(text, i, 1))
+        If code >= 0 And code < 128 Then
+            totalWidth = totalWidth + fontSizePt * 0.62
+        Else
+            totalWidth = totalWidth + fontSizePt
+        End If
+    Next i
+
+    n = -Int(-(totalWidth / widthPt))
+    If n < 1 Then
+        n = 1
+    End If
+    EstimateMonoWrappedLines = n
+End Function
+
+'=============================================================
+' ユーティリティ: vbLf区切りのコードブロックが必要とする概算の高さ(pt)を返す
+'=============================================================
+Private Function EstimateCodeBlockHeight(ByVal text As String, ByVal fontSizePt As Single, ByVal widthPt As Single) As Single
+    Dim lines() As String
+    Dim totalLines As Long
+    Dim i As Long
+
+    lines = Split(text, vbLf)
+
+    totalLines = 0
+    For i = 0 To UBound(lines)
+        totalLines = totalLines + EstimateMonoWrappedLines(lines(i), fontSizePt, widthPt)
+    Next i
+
+    EstimateCodeBlockHeight = totalLines * fontSizePt * 1.15 + 16
 End Function
 
 '=============================================================
@@ -557,29 +864,259 @@ Private Sub MakeTocSlide(prs As Presentation, _
 End Sub
 
 '=============================================================
-' 本文スライド
+' 本文スライド（本文・表・コードブロックの組み合わせに対応。
+' tables・codeBlocksは1スライド分のCollection。それぞれ他の要素と
+' 重ならないよう、cursorで縦位置を管理しながら順に積み上げて配置する）
 '=============================================================
-Private Sub MakeContentSlide(prs As Presentation, title As String, body As String)
+Private Sub MakeContentSlide(prs As Presentation, title As String, body As String, _
+                              tables As Collection, codeBlocks As Collection)
 
     Dim sld As Slide
+    Dim hdrH As Single
+    Dim contentLeft As Single
+    Dim contentWidth As Single
+    Dim cursor As Single
+    Dim bottomLimit As Single
+    Dim hasExtra As Boolean
+    Dim fontSize As Integer
+    Dim bodyHeight As Single
+    Dim maxBodyHeight As Single
+    Dim remaining As Single
+    Dim t As Variant
+    Dim cb As Variant
+
     Set sld = prs.Slides.Add(prs.Slides.Count + 1, ppLayoutBlank)
 
     Call SetBgColor(sld, COLOR_LIGHT)
 
-    Dim hdrH As Single: hdrH = CmToPt(3.2)
+    hdrH = CmToPt(3.2)
     Call AddRect(sld, 0, 0, sld.Parent.PageSetup.SlideWidth, hdrH, COLOR_ACCENT)
     Call AddTextBox(sld, title, CmToPt(1.3), CmToPt(0.5), _
                     CmToPt(20), CmToPt(2.0), _
                     28, True, COLOR_WHITE, ppAlignLeft)
 
-    Call AddTextBox(sld, body, CmToPt(2.0), hdrH + 20, _
-                    CmToPt(29), CmToPt(13), _
-                    20, False, COLOR_DARK, ppAlignLeft)
+    contentLeft = CmToPt(2.0)
+    contentWidth = CmToPt(29.0)
+    cursor = hdrH + 20
+    bottomLimit = sld.Parent.PageSetup.SlideHeight - 30
+
+    hasExtra = (tables.Count > 0) Or (codeBlocks.Count > 0)
+
+    If Len(body) > 0 Then
+        If hasExtra Then
+            fontSize = 18
+        Else
+            fontSize = 20
+        End If
+
+        bodyHeight = EstimateTextBlockHeight(body, fontSize, contentWidth)
+        maxBodyHeight = CmToPt(13)
+        If bodyHeight > maxBodyHeight Then
+            bodyHeight = maxBodyHeight
+        End If
+        If bodyHeight < 20 Then
+            bodyHeight = 20
+        End If
+
+        Call AddTextBox(sld, body, contentLeft, cursor, contentWidth, bodyHeight, _
+                        fontSize, False, COLOR_DARK, ppAlignLeft)
+        cursor = cursor + bodyHeight
+    End If
+
+    For Each t In tables
+        remaining = bottomLimit - cursor
+        If remaining < 20 Then
+            remaining = 20
+        End If
+        cursor = AddTableShape(sld, t, contentLeft, cursor, contentWidth, remaining)
+    Next t
+
+    For Each cb In codeBlocks
+        remaining = bottomLimit - cursor
+        If remaining < 20 Then
+            remaining = 20
+        End If
+        cursor = AddCodeBox(sld, CStr(cb), contentLeft, cursor, contentWidth, remaining)
+    Next cb
 
     Call AddRect(sld, 0, sld.Parent.PageSetup.SlideHeight - 20, _
                  sld.Parent.PageSetup.SlideWidth, 20, COLOR_ACCENT)
 
 End Sub
+
+'=============================================================
+' Markdownテーブルを本物のPowerPoint表として挿入する
+' （tbl(1)=ヘッダーセルCollection、tbl(2)以降=各行のセルCollection）。
+' 行の高さはセルの文字量から概算し、はみ出す場合は最小サイズまで縮小して
+' 他の要素との重なりを防ぐ（それでも収まらない場合は手動での内容整理が必要）
+'=============================================================
+Private Function AddTableShape(sld As Slide, ByVal tbl As Collection, ByVal lft As Single, ByVal tp As Single, _
+                                ByVal wd As Single, ByVal maxH As Single) As Single
+
+    Dim header As Collection
+    Dim nCols As Long
+    Dim nRows As Long
+    Dim fontSize As Single
+    Dim colWidth As Single
+    Dim cellTextWidth As Single
+    Dim minRowHeight As Single
+    Dim rowHeights() As Single
+    Dim r As Long
+    Dim totalHeight As Single
+    Dim rowCells As Collection
+    Dim maxLines As Long
+    Dim c As Variant
+    Dim ln As Long
+    Dim rh As Single
+    Dim scaleFactor As Single
+    Dim scaledHeight As Single
+    Dim shp As Shape
+    Dim tbl2 As Table
+    Dim cel As Cell
+    Dim rowCells2 As Collection
+    Dim cellText As String
+
+    Set header = tbl(1)
+    nCols = header.Count
+    nRows = tbl.Count
+
+    fontSize = 12
+    colWidth = wd / nCols
+    cellTextWidth = colWidth - 12
+    If cellTextWidth < 10 Then
+        cellTextWidth = 10
+    End If
+    minRowHeight = 20
+
+    ReDim rowHeights(1 To nRows)
+
+    totalHeight = 0
+    For r = 1 To nRows
+        Set rowCells = tbl(r)
+        maxLines = 1
+        For Each c In rowCells
+            ln = EstimateWrappedLines(CStr(c), fontSize, cellTextWidth)
+            If ln > maxLines Then
+                maxLines = ln
+            End If
+        Next c
+        rh = maxLines * fontSize * 1.3 + 6
+        If rh < minRowHeight Then
+            rh = minRowHeight
+        End If
+        rowHeights(r) = rh
+        totalHeight = totalHeight + rh
+    Next r
+
+    If totalHeight > maxH Then
+        scaleFactor = maxH / totalHeight
+        totalHeight = 0
+        For r = 1 To nRows
+            scaledHeight = rowHeights(r) * scaleFactor
+            If scaledHeight < minRowHeight * 0.5 Then
+                scaledHeight = minRowHeight * 0.5
+            End If
+            rowHeights(r) = scaledHeight
+            totalHeight = totalHeight + scaledHeight
+        Next r
+    End If
+
+    Set shp = sld.Shapes.AddTable(nRows, nCols, lft, tp, wd, totalHeight)
+    Set tbl2 = shp.Table
+
+    For c = 1 To nCols
+        tbl2.Columns(c).Width = colWidth
+    Next c
+    For r = 1 To nRows
+        tbl2.Rows(r).Height = rowHeights(r)
+    Next r
+
+    For c = 1 To nCols
+        Set cel = tbl2.Cell(1, c)
+        cel.Shape.TextFrame.TextRange.Text = header(c)
+        cel.Shape.TextFrame.TextRange.Font.Size = fontSize
+        cel.Shape.TextFrame.TextRange.Font.Bold = True
+        cel.Shape.TextFrame.TextRange.Font.Color.RGB = COLOR_WHITE
+        cel.Shape.TextFrame.TextRange.Font.Name = "メイリオ"
+        cel.Shape.Fill.Solid
+        cel.Shape.Fill.ForeColor.RGB = COLOR_ACCENT
+    Next c
+
+    For r = 2 To nRows
+        Set rowCells2 = tbl(r)
+        For c = 1 To nCols
+            If c <= rowCells2.Count Then
+                cellText = rowCells2(c)
+            Else
+                cellText = ""
+            End If
+            Set cel = tbl2.Cell(r, c)
+            cel.Shape.TextFrame.TextRange.Text = cellText
+            cel.Shape.TextFrame.TextRange.Font.Size = fontSize
+            cel.Shape.TextFrame.TextRange.Font.Color.RGB = COLOR_DARK
+            cel.Shape.TextFrame.TextRange.Font.Name = "メイリオ"
+            cel.Shape.Fill.Solid
+            cel.Shape.Fill.ForeColor.RGB = COLOR_WHITE
+        Next c
+    Next r
+
+    AddTableShape = tp + totalHeight + 15
+
+End Function
+
+'=============================================================
+' コードブロック（```～```で囲まれた部分）を等幅フォント（Courier New）の
+' テキストボックスとして表示する（ディレクトリツリー等のファイル構成表示向け）。
+' 収まらない場合はフォントを段階的に縮小し、他の要素との重なりを防ぐ
+'=============================================================
+Private Function AddCodeBox(sld As Slide, codeText As String, ByVal lft As Single, ByVal tp As Single, _
+                             ByVal wd As Single, ByVal maxH As Single) As Single
+
+    Dim fontSize As Single
+    Dim innerWidth As Single
+    Dim ht As Single
+    Dim trySize As Single
+    Dim candidate As Single
+    Dim shp As Shape
+
+    fontSize = 13
+    innerWidth = wd - 20
+
+    ht = EstimateCodeBlockHeight(codeText, fontSize, innerWidth)
+
+    If ht > maxH Then
+        For trySize = fontSize - 1 To 8 Step -1
+            candidate = EstimateCodeBlockHeight(codeText, trySize, innerWidth)
+            If candidate <= maxH Then
+                fontSize = trySize
+                ht = candidate
+                Exit For
+            End If
+        Next trySize
+        If ht > maxH Then
+            ht = maxH
+        End If
+    End If
+
+    Call AddRect(sld, lft, tp, wd, ht, COLOR_CODE_BG)
+    Call AddRect(sld, lft, tp, 4, ht, COLOR_ACCENT)
+
+    Set shp = sld.Shapes.AddTextbox(msoTextOrientationHorizontal, lft + 12, tp + 8, innerWidth - 8, ht - 16)
+    With shp.TextFrame
+        .WordWrap = msoTrue
+        .AutoSize = ppAutoSizeNone
+        With .TextRange
+            .Text = Replace(codeText, vbLf, Chr(13))
+            .Font.Size = fontSize
+            .Font.Color.RGB = COLOR_DARK
+            .Font.Name = "Courier New"
+            .ParagraphFormat.Alignment = ppAlignLeft
+        End With
+    End With
+
+    AddCodeBox = tp + ht + 15
+
+End Function
 
 '=============================================================
 ' まとめスライド（背景を濃紺で強調）
