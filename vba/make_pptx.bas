@@ -114,6 +114,12 @@ Public Sub MakePPTXFromMarkdown()
     Dim bodyText As String
     bodyText = ParseFrontMatter(mdText, cfgTitle, cfgSubtitle, cfgAuthor, cfgDate)
 
+    ' titleが未指定の場合、本文の見出しから自動取得する
+    ' （最初の"# "見出し、なければ最初の"## "見出しをタイトルとして使う）
+    If Trim(cfgTitle) = "" Then
+        cfgTitle = ExtractAutoTitle(bodyText)
+    End If
+
     Dim slideTitles() As String
     Dim slideBodies() As String
     Dim slideTypes() As String
@@ -342,6 +348,35 @@ Private Function ParseFrontMatter(ByVal src As String, _
     Next i
 
     ParseFrontMatter = rest
+
+End Function
+
+'=============================================================
+' ユーティリティ: フロントマターでtitleが省略された場合に、
+' 本文の見出しから自動取得する（最初の"# "見出し、なければ
+' 最初の"## "見出しを使う）
+'=============================================================
+Private Function ExtractAutoTitle(ByVal src As String) As String
+
+    Dim lines() As String
+    lines = Split(src, vbLf)
+
+    Dim h2Title As String
+    h2Title = ""
+
+    Dim i As Long
+    Dim ln As String
+    For i = 0 To UBound(lines)
+        ln = lines(i)
+        If Left(ln, 2) = "# " And Left(ln, 3) <> "## " Then
+            ExtractAutoTitle = Trim(Mid(ln, 3))
+            Exit Function
+        ElseIf Left(ln, 3) = "## " And h2Title = "" Then
+            h2Title = Trim(Mid(ln, 4))
+        End If
+    Next i
+
+    ExtractAutoTitle = h2Title
 
 End Function
 
