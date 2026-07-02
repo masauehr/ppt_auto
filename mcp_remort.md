@@ -1,11 +1,4 @@
----
-title: 気象データ取得MCPサーバーの構築 リモート版
-subtitle: Claude チャット　から気象データMCPサーバーを利用する
-author: 上原政博
-date: 2026年7月
----
-
-## jma-mcp-remote とは
+# jma-mcp-remote とは
 
 - jma_mcp（ローカルstdio版）をベースに、HTTP/SSE通信へ切り替えたリモートデプロイ版
 - Renderにデプロイし、Claude.ai Web版・デスクトップアプリ・iPhone版から利用できる

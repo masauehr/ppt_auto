@@ -264,11 +264,16 @@ def parse_markdown(md_path: Path) -> dict:
       ## まとめ <!-- summary -->
 
       まとめ本文
+
+    フロントマター（---...---）は丸ごと省略可能。titleが指定されていない場合、
+    本文の最初の"# "見出し（H1）、なければ最初の"## "見出し（H2）を自動でタイトルに
+    使う。subtitle/author/dateは元々省略可（空欄）。これにより、README.md等の
+    既存Markdownをそのまま渡しても動作する。
     """
     content = md_path.read_text(encoding="utf-8")
     cfg = {"title": "", "subtitle": "", "author": "", "date": "", "slides": []}
 
-    # フロントマター（---...---）を解析
+    # フロントマター（---...---）を解析（フロントマター自体が省略されていてもよい）
     fm_match = re.match(r"^---\s*\n([\s\S]*?)\n---\s*\n?", content)
     if fm_match:
         for line in fm_match.group(1).split("\n"):
@@ -278,6 +283,18 @@ def parse_markdown(md_path: Path) -> dict:
                 if k in cfg:
                     cfg[k] = v
         content = content[fm_match.end():]
+
+    # titleが未指定の場合、本文の見出しから自動取得する
+    # （最初の"# "見出し、なければ最初の"## "見出しをタイトルとして使う。
+    # subtitle/author/dateは元々省略可＝空欄でよいため、これでフロントマター自体が不要になる）
+    if not cfg["title"]:
+        m_h1 = re.search(r"^#\s+(.+)$", content, re.MULTILINE)
+        if m_h1:
+            cfg["title"] = m_h1.group(1).strip()
+        else:
+            m_h2 = re.search(r"^##\s+(.+)$", content, re.MULTILINE)
+            if m_h2:
+                cfg["title"] = m_h2.group(1).strip()
 
     # H1/H2見出しでスライドに分割（H3以下はスライド内の小見出しとして扱う）
     parts = re.split(r"^#{1,2}\s+(.+)$", content, flags=re.MULTILINE)
@@ -376,6 +393,11 @@ date: 2026年7月
 ## まとめ <!-- summary -->
 
 まとめ本文
+
+補足: フロントマター（---...---）は省略可能。titleを省略した場合、本文の
+最初の "# " 見出し（なければ最初の "## " 見出し）を自動でタイトルに使う。
+subtitle/author/dateも省略時は空欄になるだけなので、既存のMarkdownファイル
+（README.md等）をそのまま渡しても動作する。
 """
 
 
