@@ -326,11 +326,44 @@ def parse_markdown(md_path: Path) -> dict:
     return cfg
 
 
+MARKDOWN_TEMPLATE_HELP = """\
+使い方: python3 make_pptx.py config.json
+       python3 make_pptx.py slides.md
+
+Markdownファイルの記法:
+
+---
+title: プレゼンタイトル
+subtitle: サブタイトル
+author: 作成者名
+date: 2026年7月
+---
+
+## スライドタイトル
+
+本文テキスト
+- 箇条書き1
+- 箇条書き2
+
+> 引用・強調したい一言
+
+![説明](画像のパス)
+
+## まとめ <!-- summary -->
+
+まとめ本文
+"""
+
+
 def main():
     if len(sys.argv) < 2:
         print("使い方: python3 make_pptx.py config.json")
         print("       python3 make_pptx.py slides.md")
         sys.exit(1)
+
+    if sys.argv[1] == "?":
+        print(MARKDOWN_TEMPLATE_HELP)
+        sys.exit(0)
 
     config_path = Path(sys.argv[1])
     if not config_path.exists():

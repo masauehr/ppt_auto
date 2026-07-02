@@ -58,6 +58,8 @@ cd ~/projects/ppt_auto
 python3 make_pptx.py sample_slides.md
 ```
 
+記法を忘れたときは `python3 make_pptx.py ?` でMarkdownテンプレート例をターミナルに表示できる。
+
 ### 記法
 
 ```markdown
@@ -310,3 +312,4 @@ VBAモジュール（`vba/make_pptx.bas`）には2つのマクロが収録され
 | 2026-07-01 | VBA版に `MakePPTXFromMarkdown` マクロを追加。`make_pptx.py` のMarkdown版とほぼ同じ記法（フロントマター・`##`見出し・箇条書き・`<!-- summary -->`）に対応し、外部Markdownファイルからスライドを生成できるようにした（`>`引用・`![]()`画像は非対応）。ファイル選択はMac版VBAで`Application.FileDialog`が使えないためInputBoxでパス入力方式とした |
 | 2026-07-01 | `MakePPTXFromMarkdown` 実行時にMarkdownの内容が文字化けする問題を修正。Mac版VBAの `Open...For Input`/`Line Input` はUTF-8のマルチバイト文字を正しく読み込めないため、`ReadTextFile` をバイナリ読み込み＋自前UTF-8デコード（`Utf8BytesToString` 関数を新規追加。BOM除去・サロゲートペア対応込み）に変更 |
 | 2026-07-01 | `Utf8BytesToString` のバグを修正: サロゲートペア判定の16進数リテラル（`&HFFFF`・`&HD800`・`&HDC00`）がVBAで符号付きIntegerとして解釈され負数になっていたため、あらゆる文字が誤って2文字に分裂して文字化けしていた。10進数リテラルに置き換えて解消。`sample_slides.md` で正常に日本語表示されることを実機（Mac版PowerPoint）で確認済み |
+| 2026-07-02 | `make_pptx.py` に `python3 make_pptx.py ?` でMarkdown記法のテンプレート例をターミナルに表示するヘルプ機能を追加 |
